@@ -1,5 +1,6 @@
 // #![warn(unused_assignments)]
 // #![warn(unreachable_patterns)]
+use serde_json::json;
 use std::fs::{File, create_dir_all, self};
 use std::io::{BufReader, BufRead, Write};
 
@@ -82,6 +83,7 @@ impl FileChunk {
         tmp_chunk_dir.push_str("/");
         tmp_chunk_dir.push_str(&self.file_hash);
         _ = create_dir_all(tmp_chunk_dir.clone());
+        let mut split_error=false;
         let mut counter=1;
         let file = File::open(&self.file_name).unwrap();
         let mut reader = BufReader::with_capacity(self.chunk_size() as usize, file);
@@ -104,19 +106,42 @@ impl FileChunk {
                     let mut f_obj=create_obj.unwrap();
                     let write_result=f_obj.write_all(&buffer);
                     if write_result.is_err(){
+                        split_error=true;
                         break;
                     }
                 }else{
+                    split_error=true;
                     break;
                 }
                 reader.consume(buffer_length);
             }else{
+                split_error=true;
                 break;
             }
             counter=counter+1;
         }
-
-        return true;
+        if split_error==false{
+            let info_json_obj = json!({
+                "file_name":std::path::Path::new(&self.file_name).file_name().unwrap().to_str().unwrap(),
+                "file_hash":self.file_hash,
+                "file_size":self.file_size,
+                "chunk_size":self.chunk_size(),
+                "chunk_count":(counter-1),
+            });
+            let info_json_str=serde_json::to_string_pretty(&info_json_obj).unwrap();
+            println!("{}", info_json_str.clone());
+            let mut tmp_file_name=tmp_chunk_dir.clone();
+            tmp_file_name.push_str("/info.json");
+            let create_obj = std::fs::File::create(tmp_file_name.clone());
+            if create_obj.is_ok(){
+                let mut f_obj=create_obj.unwrap();
+                let tmp_write_result=f_obj.write_all(&info_json_str.clone().as_bytes());
+                if tmp_write_result.is_ok(){
+                    return true;
+                }
+            }
+        }
+        return false;
     }
     pub fn merge(&self,_hash_data: &str) -> bool {
         return true;
