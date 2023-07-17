@@ -164,20 +164,55 @@ impl FileChunk {
     }
 }
 
+fn generate_tmp_file(file_size:usize)->String{
+    let mut result_str=String::new();
+    #[cfg(windows)]
+    const LINE_ENDING: &str = "\r\n";
+    #[cfg(not(windows))]
+    const LINE_ENDING: &str = "\n";    
+    let mut counter=1;
+    loop{
+        let micros_time=std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_micros();
+        result_str.push_str("Lorem Ipsum Text Line => ");
+        result_str.push_str(&counter.to_string());
+        result_str.push_str(" => ");
+        result_str.push_str(&micros_time.to_string());
+        result_str.push_str(LINE_ENDING);
+        counter=counter+1;
+        if result_str.len()>file_size{
+            break;
+        }
+    }
+    let hash_file_name=format!("{}",blake3::hash(&result_str.clone().as_bytes()).to_hex());
+    let mut tmp_file_name=format!("{}", std::env::temp_dir().to_str().unwrap());
+    tmp_file_name.push_str(&hash_file_name);
+    tmp_file_name.push_str(".txt");
+    tmp_file_name
+}
 #[test]
 fn first_test() {
-    let file_path="e:/deneme.mp4";
+    let file_name=generate_tmp_file(1000000);
+    println!("tmp file: {}",file_name.clone());
+
     let mut file_obj=FileChunk::new();
-    file_obj.assign_file(file_path);
+    file_obj.assign_file(&file_name.clone());
 
     if file_obj.is_exist==true{
         file_obj.set_size(256,FileChunkType::KiloByte);
         let split_result=file_obj.split();
         if split_result==true{
-            let result_json=file_obj.result();
+
+            let _result_json=file_obj.result();
+            
             println!("file splited");
         }else{
             println!("file split error");
+        }
+        let remove_result = fs::remove_file(file_name.clone());
+        if remove_result.is_ok(){
+            println!("tmp file deleted");
+        }else{
+            println!("tmp file not delete");
         }
     }else{
         println!("dosya yok");
