@@ -1,7 +1,9 @@
-use serde_json::json;
+use serde::*;
+use serde_json::*;
 use std::collections::HashMap;
 use std::fs::{File, create_dir_all, self};
 use std::io::{BufReader, BufRead, Write};
+use std::path::Path;
 
 #[derive(Clone, Copy, Debug, PartialEq,Eq,Ord,PartialOrd)]
 pub enum DefaultStoragePath{
@@ -14,8 +16,9 @@ pub enum FileChunkType{
     KiloByte,
     MegaByte
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq,Serialize,Deserialize)]
 pub struct FileChunkSplitResult {
+    pub info_file:String,
     pub file_name:String,
     pub file_hash:String,
     pub file_size: usize,
@@ -47,6 +50,7 @@ impl FileChunk {
             chunk_type:FileChunkType::KiloByte,
             storage_path:format!("{}", std::env::temp_dir().to_str().unwrap()),
             result_obj:FileChunkSplitResult{ 
+                info_file: String::new(), 
                 file_name: String::new(), 
                 file_hash: String::new(), 
                 file_size: 0, 
@@ -56,7 +60,7 @@ impl FileChunk {
             }
         }
     }
-    fn calculate_file_hash(&mut self,file_path:String)->String{
+    fn calculate_file_hash(&self,file_path:String)->String{
         let bytes = fs::read(file_path).unwrap();
         format!("{}",blake3::hash(&bytes).to_hex())
     }
@@ -150,7 +154,6 @@ impl FileChunk {
                         break;
                     }else{
                         let chunk_hash=self.calculate_file_hash(tmp_file_name.clone());
-                        //println!("chunk_hash: {}",chunk_hash);
                         file_hash_list.insert(counter, chunk_hash);
                     }
                 }else{
@@ -165,6 +168,7 @@ impl FileChunk {
             counter=counter+1;
         }
         self.result_obj=FileChunkSplitResult{ 
+            info_file: String::new(), 
             file_name: String::new(), 
             file_hash: String::new(), 
             file_size: 0, 
@@ -181,10 +185,12 @@ impl FileChunk {
             self.result_obj.list=file_hash_list.clone();
             let mut tmp_file_name=tmp_chunk_dir.clone();
             tmp_file_name.push_str("/info.json");
+            self.result_obj.info_file=tmp_file_name.clone();
             let create_obj = std::fs::File::create(tmp_file_name.clone());
             if create_obj.is_ok(){
                 let mut f_obj=create_obj.unwrap();
                 let info_json_obj = json!({
+                    "info_file":self.result_obj.info_file,
                     "file_name":self.result_obj.file_name,
                     "file_hash":self.result_obj.file_hash,
                     "file_size":self.result_obj.file_size,
@@ -205,14 +211,68 @@ impl FileChunk {
     pub fn result(&self)->FileChunkSplitResult{
         self.result_obj.clone()
     }
-    pub fn merge(&self,_hash_data: &str) -> bool {
+    pub fn merge(&self,info_file_path: &str) -> bool {
+        let contents = fs::read_to_string(info_file_path);
+        if contents.is_err(){
+            return false;
+        }
+        let path = Path::new(info_file_path);
+        let mut base_path = path.parent().unwrap().display().to_string();
+        base_path.push_str("/");
+        let file_contents=contents.unwrap();
+        let info_obj:FileChunkSplitResult = serde_json::from_str(&file_contents).unwrap();
+        for count in 1..info_obj.chunk_count+1{
+            let extension_str=format!("{:0>8}", count.to_string());
+            let mut chunk_file_name=base_path.clone();
+            chunk_file_name.push_str("/");
+            chunk_file_name.push_str("chunk.");
+            chunk_file_name.push_str(&extension_str.clone());
+            let file_meta = fs::metadata(chunk_file_name.clone());
+            if file_meta.is_err(){
+                return false;
+            }
+            if info_obj.list.contains_key(&count)==false {
+                return false;
+            }
+            let list_item=info_obj.list.get(&count).unwrap();
+            let chunk_file_hash=self.calculate_file_hash(chunk_file_name.clone().to_string());
+            if list_item.eq(&chunk_file_hash.clone())==false{
+                return false;
+            }
+        }
+
+        let mut output_file_name=base_path.clone();
+        output_file_name.push_str("/");
+        output_file_name.push_str(&info_obj.file_name);
+        let output_file_obj = std::fs::File::create(output_file_name.clone());
+        if output_file_obj.is_err(){
+            return false;
+        }
+        let mut output_file_obj=output_file_obj.unwrap();
+
+        for count in 1..info_obj.chunk_count+1{
+            let extension_str=format!("{:0>8}", count.to_string());
+            let mut chunk_file_name=base_path.clone();
+            chunk_file_name.push_str("/");
+            chunk_file_name.push_str("chunk.");
+            chunk_file_name.push_str(&extension_str.clone());
+            let bytes_buf = fs::read(chunk_file_name).unwrap();
+            let write_result=output_file_obj.write_all(&bytes_buf);
+            if write_result.is_err(){
+                return false;
+            }    
+        }
+        let calculated_file_hash=self.calculate_file_hash(output_file_name.clone().to_string());
+        if info_obj.file_hash.eq(&calculated_file_hash.clone())==false{
+            return false;
+        }    
         return true;
     }
 }
 
 #[test]
-fn first_test() {
-    // cargo test  --lib first_test -- --nocapture
+fn full_test() {
+    // cargo test  --lib full_test -- --nocapture
     fn generate_tmp_file(file_size:usize)->String{
     let mut result_str=String::new();
     #[cfg(windows)]
@@ -257,11 +317,22 @@ fn first_test() {
         let split_result=file_obj.split();
         if split_result==true{
             let _result_json=file_obj.result();
-            dbg!(_result_json);
-            println!("file splited");
-            error_status=false;
+            let merge_result=file_obj.merge(&_result_json.info_file);
+            if merge_result==true{
+                error_status=false;
+            }
+            
+            //dizin icindeki gecici dosyalar siliniyor...
+            let path = Path::new(&_result_json.info_file);
+            let mut base_path = path.parent().unwrap().display().to_string();
+            base_path.push_str("/");
+            for file in fs::read_dir(base_path).unwrap() {
+                let clear_file_name=file.unwrap().path().display().to_string();
+                _ = fs::remove_file(clear_file_name.clone());
+            }            
         }
     }
+    // olusturulan temp dosyasi siliniyor
     _ = fs::remove_file(file_name.clone());
     if error_status==true{
         assert_eq!(true,false)
