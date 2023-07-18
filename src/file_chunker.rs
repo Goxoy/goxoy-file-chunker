@@ -1,10 +1,13 @@
-// #![warn(unused_assignments)]
-// #![warn(unreachable_patterns)]
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs::{File, create_dir_all, self};
 use std::io::{BufReader, BufRead, Write};
 
+#[derive(Clone, Copy, Debug, PartialEq,Eq,Ord,PartialOrd)]
+pub enum DefaultStoragePath{
+    ExePath,
+    TempPath
+}
 #[derive(Clone, Copy, Debug, PartialEq,Eq,Ord,PartialOrd)]
 pub enum FileChunkType{
     Byte,
@@ -25,17 +28,6 @@ pub struct FileChunk {
 
 impl FileChunk {
     pub fn new() -> Self {
-        let mut c_path=std::env::current_exe().unwrap();
-        c_path.pop();
-        
-        c_path.pop();
-        c_path.pop();
-        c_path.pop();
-        
-        c_path.push("storages");
-        let cur_path=format!("{}",c_path.display());
-        _ = create_dir_all(cur_path.clone());
-        println!("Path of this executable is: {}",cur_path.clone());
         FileChunk{
             is_exist:false,
             file_name:String::new(),
@@ -43,14 +35,38 @@ impl FileChunk {
             file_hash:String::new(),
             chunk_size:256,
             chunk_type:FileChunkType::KiloByte,
-            storage_path:cur_path.clone(),
+            storage_path:format!("{}", std::env::temp_dir().to_str().unwrap()),
             result_str:String::new()
         }
     }
     fn calculate_file_hash(&mut self,file_path:String)->String{
         let bytes = fs::read(file_path).unwrap();
-        let hash1 = blake3::hash(&bytes).to_hex();
-        format!("{}",hash1)
+        format!("{}",blake3::hash(&bytes).to_hex())
+    }
+    fn control_storage_path(&self){
+        _ = create_dir_all(self.storage_path.clone());
+    }
+    pub fn set_storage_path_with_string(&mut self, storage_path:&str) {
+        self.storage_path= storage_path.to_string();
+        self.control_storage_path();
+    }
+    pub fn set_storage_path(&mut self, which_path: DefaultStoragePath) {
+        match which_path {
+            DefaultStoragePath::ExePath => {
+                let mut c_path=std::env::current_exe().unwrap();
+                c_path.pop();
+                
+                c_path.pop();
+                c_path.pop();
+                c_path.pop();
+                c_path.push("storages");
+                self.storage_path=format!("{}",c_path.display());
+            },
+            DefaultStoragePath::TempPath => {
+                self.storage_path=format!("{}", std::env::temp_dir().to_str().unwrap());
+            },
+        }
+        self.control_storage_path();
     }
     pub fn assign_file(&mut self,file_path: &str) {
         let file_meta = fs::metadata(file_path);
@@ -164,7 +180,10 @@ impl FileChunk {
     }
 }
 
-fn generate_tmp_file(file_size:usize)->String{
+#[test]
+fn first_test() {
+    // cargo test  --lib first_test -- --nocapture
+    fn generate_tmp_file(file_size:usize)->String{
     let mut result_str=String::new();
     #[cfg(windows)]
     const LINE_ENDING: &str = "\r\n";
@@ -198,11 +217,10 @@ fn generate_tmp_file(file_size:usize)->String{
     }
     return String::new();
 }
-#[test]
-fn first_test() {
     let mut error_status=true;
     let file_name=generate_tmp_file(1000000);
     let mut file_obj=FileChunk::new();
+    file_obj.set_storage_path(DefaultStoragePath::TempPath);
     file_obj.assign_file(&file_name.clone());
     if file_obj.is_exist==true{
         file_obj.set_size(256,FileChunkType::KiloByte);
@@ -211,7 +229,7 @@ fn first_test() {
             let _result_json=file_obj.result();
             dbg!(_result_json);
             println!("file splited");
-            //error_status=false;
+            error_status=false;
         }
     }
     _ = fs::remove_file(file_name.clone());
