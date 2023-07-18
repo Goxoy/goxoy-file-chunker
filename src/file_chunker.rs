@@ -187,35 +187,37 @@ fn generate_tmp_file(file_size:usize)->String{
     let mut tmp_file_name=format!("{}", std::env::temp_dir().to_str().unwrap());
     tmp_file_name.push_str(&hash_file_name);
     tmp_file_name.push_str(".txt");
-    tmp_file_name
+
+    let create_obj = std::fs::File::create(tmp_file_name.clone());
+    if create_obj.is_ok(){
+        let mut f_obj=create_obj.unwrap();
+        let write_result=f_obj.write_all(&result_str.as_bytes());
+        if write_result.is_ok(){
+            return tmp_file_name;
+        }
+    }
+    return String::new();
 }
 #[test]
 fn first_test() {
+    let mut error_status=true;
     let file_name=generate_tmp_file(1000000);
-    println!("tmp file: {}",file_name.clone());
-
     let mut file_obj=FileChunk::new();
     file_obj.assign_file(&file_name.clone());
-
     if file_obj.is_exist==true{
         file_obj.set_size(256,FileChunkType::KiloByte);
         let split_result=file_obj.split();
         if split_result==true{
-
             let _result_json=file_obj.result();
-            
+            dbg!(_result_json);
             println!("file splited");
-        }else{
-            println!("file split error");
+            //error_status=false;
         }
-        let remove_result = fs::remove_file(file_name.clone());
-        if remove_result.is_ok(){
-            println!("tmp file deleted");
-        }else{
-            println!("tmp file not delete");
-        }
-    }else{
-        println!("dosya yok");
     }
-    assert_eq!("d8578edf8458ce06fbc5bb76a58c5ca4","d8578edf8458ce06fbc5bb76a58c5ca4")
+    _ = fs::remove_file(file_name.clone());
+    if error_status==true{
+        assert_eq!(true,false)
+    }else{
+        assert_eq!(true,true)
+    }
 }
