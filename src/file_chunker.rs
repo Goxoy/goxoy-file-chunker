@@ -14,7 +14,17 @@ pub enum FileChunkType{
     KiloByte,
     MegaByte
 }
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileChunkSplitResult {
+    pub file_name:String,
+    pub file_hash:String,
+    pub file_size: usize,
+    pub chunk_size:usize,
+    pub chunk_count:usize,
+    pub list:HashMap<usize,String>
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileChunk {
     pub is_exist:bool,
     pub file_name:String,
@@ -23,7 +33,7 @@ pub struct FileChunk {
     pub chunk_size:u128,
     pub chunk_type:FileChunkType,
     pub storage_path:String,
-    pub result_str:String
+    pub result_obj:FileChunkSplitResult,
 }
 
 impl FileChunk {
@@ -36,7 +46,14 @@ impl FileChunk {
             chunk_size:256,
             chunk_type:FileChunkType::KiloByte,
             storage_path:format!("{}", std::env::temp_dir().to_str().unwrap()),
-            result_str:String::new()
+            result_obj:FileChunkSplitResult{ 
+                file_name: String::new(), 
+                file_hash: String::new(), 
+                file_size: 0, 
+                chunk_size: 0, 
+                chunk_count: 0, 
+                list: HashMap::new()
+            }
         }
     }
     fn calculate_file_hash(&mut self,file_path:String)->String{
@@ -147,23 +164,36 @@ impl FileChunk {
             }
             counter=counter+1;
         }
-        self.result_str=String::new();
+        self.result_obj=FileChunkSplitResult{ 
+            file_name: String::new(), 
+            file_hash: String::new(), 
+            file_size: 0, 
+            chunk_size: 0, 
+            chunk_count: 0, 
+            list: HashMap::new()
+        };
         if split_error==false{
-            let info_json_obj = json!({
-                "file_name":std::path::Path::new(&self.file_name).file_name().unwrap().to_str().unwrap(),
-                "file_hash":self.file_hash,
-                "file_size":self.file_size,
-                "chunk_size":self.chunk_size(),
-                "chunk_count":(counter-1),
-                "list":file_hash_list
-            });
-            self.result_str=serde_json::to_string_pretty(&info_json_obj).unwrap();
+            self.result_obj.file_name=std::path::Path::new(&self.file_name).file_name().unwrap().to_str().unwrap().to_string();
+            self.result_obj.file_hash=self.file_hash.clone();
+            self.result_obj.file_size=self.file_size as usize;
+            self.result_obj.chunk_size=self.chunk_size() as usize;
+            self.result_obj.chunk_count=counter-1;
+            self.result_obj.list=file_hash_list.clone();
             let mut tmp_file_name=tmp_chunk_dir.clone();
             tmp_file_name.push_str("/info.json");
             let create_obj = std::fs::File::create(tmp_file_name.clone());
             if create_obj.is_ok(){
                 let mut f_obj=create_obj.unwrap();
-                let tmp_write_result=f_obj.write_all(&self.result_str.clone().as_bytes());
+                let info_json_obj = json!({
+                    "file_name":self.result_obj.file_name,
+                    "file_hash":self.result_obj.file_hash,
+                    "file_size":self.result_obj.file_size,
+                    "chunk_size":self.result_obj.chunk_size,
+                    "chunk_count":self.result_obj.chunk_count,
+                    "list":self.result_obj.list
+                });
+                let tmp_result_str=serde_json::to_string_pretty(&info_json_obj).unwrap();
+                let tmp_write_result=f_obj.write_all(&tmp_result_str.clone().as_bytes());
                 if tmp_write_result.is_ok(){
                     return true;
                 }
@@ -172,8 +202,8 @@ impl FileChunk {
         let _remove_result=fs::remove_dir_all(clear_folder_name);
         return false;
     }
-    pub fn result(&self)->String{
-        self.result_str.clone()
+    pub fn result(&self)->FileChunkSplitResult{
+        self.result_obj.clone()
     }
     pub fn merge(&self,_hash_data: &str) -> bool {
         return true;
