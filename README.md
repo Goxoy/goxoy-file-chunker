@@ -1,6 +1,6 @@
 # Goxoy File Chunker
 
-[![Version](https://img.shields.io/crates/v/goxoy-file-chunker)](https://crates.io/crates/tempmail)
+[![Version](https://img.shields.io/crates/v/goxoy-file-chunker)](https://crates.io/crates/goxoy-file-chunker)
 [![Downloads](https://img.shields.io/crates/d/goxoy-file-chunker)](https://crates.io/crates/goxoy-file-chunker)
 [![License](https://img.shields.io/crates/l/goxoy-file-chunker)](https://crates.io/crates/goxoy-file-chunker)
 [![Docs](https://docs.rs/goxoy-file-chunker/badge.svg)](https://docs.rs/goxoy-file-chunker)
